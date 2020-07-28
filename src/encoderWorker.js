@@ -16,7 +16,8 @@ const OggOpusEncoder = function( config, Module ){
     numberOfChannels: 1,
     originalSampleRate: 44100,
     resampleQuality: 3, // Value between 0 and 10 inclusive. 10 being highest quality.
-    serial: Math.floor(Math.random() * 4294967296)
+    serial: Math.floor(Math.random() * 4294967296),
+    emitRawFrames: false // Emit raw opus frames instead of ogg pages
   }, config );
 
   this._opus_encoder_create = Module._opus_encoder_create;
@@ -43,6 +44,7 @@ const OggOpusEncoder = function( config, Module ){
   this.initChecksumTable();
   this.initCodec();
   this.initResampler();
+  this.resetRawFrameBuffer();
 
   if ( this.config.numberOfChannels === 1 ) {
     this.interleave = function( buffers ) { return buffers[0]; };
@@ -71,12 +73,24 @@ OggOpusEncoder.prototype.encode = function( buffers ) {
     if ( this.resampleBufferIndex === this.resampleBufferLength ) {
       this._speex_resampler_process_interleaved_float( this.resampler, this.resampleBufferPointer, this.resampleSamplesPerChannelPointer, this.encoderBufferPointer, this.encoderSamplesPerChannelPointer );
       var packetLength = this._opus_encode_float( this.encoder, this.encoderBufferPointer, this.encoderSamplesPerChannel, this.encoderOutputPointer, this.encoderOutputMaxLength );
-      exportPages.concat(this.segmentPacket( packetLength ));
-      this.resampleBufferIndex = 0;
 
-      this.framesInPage++;
-      if ( this.framesInPage >= this.config.maxFramesPerPage ) {
-        exportPages.push( this.generatePage() );
+      if (this.config.emitRawFrames) {
+        this.saveRawFrame( packetLength );
+        this.resampleBufferIndex = 0;
+
+        this.framesInPage++;
+        if ( this.framesInPage >= this.config.maxFramesPerPage ) {
+          exportPages.push( this.generateRawPage() );
+        }
+      }
+      else {
+        exportPages.concat(this.segmentPacket( packetLength ));
+        this.resampleBufferIndex = 0;
+
+        this.framesInPage++;
+        if ( this.framesInPage >= this.config.maxFramesPerPage ) {
+          exportPages.push( this.generatePage() );
+        }
       }
     }
   }
@@ -106,7 +120,12 @@ OggOpusEncoder.prototype.destroy = function() {
 OggOpusEncoder.prototype.flush = function() {
   var exportPage;
   if ( this.framesInPage ) {
-    exportPage = this.generatePage();
+    if (this.config.emitRawFrames) {
+      exportPage = this.generateRawPage();
+    }
+    else {
+      exportPage = this.generatePage();
+    }
   }
   // discard any pending data in resample buffer (only a few ms worth)
   this.resampleBufferIndex = 0;
@@ -114,6 +133,9 @@ OggOpusEncoder.prototype.flush = function() {
 };
 
 OggOpusEncoder.prototype.encodeFinalFrame = function() {
+  if (this.config.emitRawFrames)
+    return [];
+
   const exportPages = [];
 
   // Encode the data remaining in the resample buffer.
@@ -144,6 +166,9 @@ OggOpusEncoder.prototype.getChecksum = function( data ){
 };
 
 OggOpusEncoder.prototype.generateCommentPage = function(){
+  if (this.config.emitRawFrames)
+    return [];
+
   var segmentDataView = new DataView( this.segmentData.buffer );
   segmentDataView.setUint32( 0, 1937076303, true ) // Magic Signature 'Opus'
   segmentDataView.setUint32( 4, 1936154964, true ) // Magic Signature 'Tags'
@@ -159,6 +184,9 @@ OggOpusEncoder.prototype.generateCommentPage = function(){
 };
 
 OggOpusEncoder.prototype.generateIdPage = function(){
+  if (this.config.emitRawFrames)
+    return [];
+
   var segmentDataView = new DataView( this.segmentData.buffer );
   segmentDataView.setUint32( 0, 1937076303, true ) // Magic Signature 'Opus'
   segmentDataView.setUint32( 4, 1684104520, true ) // Magic Signature 'Head'
@@ -281,6 +309,53 @@ OggOpusEncoder.prototype.interleave = function( buffers ) {
   return this.interleavedBuffers;
 };
 
+OggOpusEncoder.prototype.allocateRawBuffer = function( packetLength ) {
+  const requiredBytes = this.rawFrameBufferUsage + packetLength;
+
+  if ( requiredBytes > this.rawFrameBuffer.length ) {
+    const newSize = Math.max(requiredBytes, this.rawFrameBuffer.length * 2);
+    var newBuffer = new ArrayBuffer( newSize );
+    (new Uint8Array( newBuffer )).set( new Uint8Array(this.rawFrameBuffer).subarray( 0, this.rawFrameBufferUsage ) );
+
+    // re-map frame arrays so they point to the new ArrayBuffer instance
+    this.rawFrames = this.rawFrames.map(f => new Uint8Array( newBuffer, f.byteOffset, f.length ));
+    this.rawFrameBuffer = newBuffer; 
+  }
+}
+
+OggOpusEncoder.prototype.resetRawFrameBuffer = function() {
+  if (this.config.emitRawFrames) {
+    this.rawFrameBuffer = new ArrayBuffer(8192);
+    this.rawFrameBufferUsage = 0;
+    this.rawFrames = [];
+  }
+}
+
+OggOpusEncoder.prototype.saveRawFrame = function( packetLength ) {
+  this.allocateRawBuffer(packetLength);
+
+  var frameInBuffer = new Uint8Array( this.rawFrameBuffer, this.rawFrameBufferUsage, packetLength );
+  frameInBuffer.set( this.encoderOutputBuffer.subarray( 0, packetLength ) );
+  this.rawFrames.push( frameInBuffer );
+  this.rawFrameBufferUsage += packetLength;
+}
+
+OggOpusEncoder.prototype.generateRawPage = function () {
+  var exportPage = { 
+    message: 'page', 
+    page: { // our page is one continuous ArrayBuffer with multiple frames
+      buffer: this.rawFrameBuffer, // "buffer" will be transferred when posting the message, as with ogg pages
+      frames: this.rawFrames
+    }, 
+    samplePosition: this.granulePosition 
+  };
+
+  this.resetRawFrameBuffer();
+  this.framesInPage = 0;
+
+  return exportPage;
+}
+
 OggOpusEncoder.prototype.segmentPacket = function( packetLength ) {
   var packetIndex = 0;
   var exportPages = [];
@@ -322,7 +397,7 @@ if (typeof registerProcessor === 'function') {
           switch( data['command'] ){
 
             case 'getHeaderPages':
-              this.postPage(this.encoder.generateIdPage());
+              this.postPage(this.encoder.generateIdPage())
               this.postPage(this.encoder.generateCommentPage());
               break;
 

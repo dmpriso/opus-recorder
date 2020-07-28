@@ -25,6 +25,7 @@ var Recorder = function( config = {} ){
     resampleQuality: 3,
     streamPages: false,
     wavBitDepth: 16,
+    emitRawFrames: false,
     sourceNode: { context: null },
   }, config );
 

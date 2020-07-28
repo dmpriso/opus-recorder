@@ -43,6 +43,8 @@ var OggOpusDecoder = function( config, Module ){
     decoderSampleRate: 48000, // Desired decoder sample rate.
     outputBufferSampleRate: 48000, // Desired output sample rate. Audio will be resampled
     resampleQuality: 3, // Value between 0 and 10 inclusive. 10 being highest quality.
+    consumeRawFrames: false, // Consume raw opus frames instead of ogg pages
+    rawNumberOfChannels: 1 // If consuming raw frames, the number of channels cannot be determined from the first page
   }, config );
 
   this._opus_decoder_create = Module._opus_decoder_create;
@@ -56,12 +58,38 @@ var OggOpusDecoder = function( config, Module ){
   this.HEAPU8 = Module.HEAPU8;
   this.HEAP32 = Module.HEAP32;
   this.HEAPF32 = Module.HEAPF32;
-
   this.outputBuffers = [];
+
+  if ( this.config.consumeRawFrames ) {
+    this.numberOfChannels = this.config.rawNumberOfChannels;
+    this.init();
+  }
 };
 
+OggOpusDecoder.prototype.decodeFromBuffer = function() {
+  var outputSampleLength = this._opus_decode_float( this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutputPointer, this.decoderOutputMaxLength, 0);
+  var resampledLength = Math.ceil( outputSampleLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate );
+  this.HEAP32[ this.decoderOutputLengthPointer >> 2 ] = outputSampleLength;
+  this.HEAP32[ this.resampleOutputLengthPointer >> 2 ] = resampledLength;
+  this._speex_resampler_process_interleaved_float( this.resampler, this.decoderOutputPointer, this.decoderOutputLengthPointer, this.resampleOutputBufferPointer, this.resampleOutputLengthPointer );
+  this.sendToOutputBuffers( this.HEAPF32.subarray( this.resampleOutputBufferPointer >> 2, (this.resampleOutputBufferPointer >> 2) + resampledLength * this.numberOfChannels ) );
+  this.decoderBufferIndex = 0;
+};
+
+OggOpusDecoder.prototype.decodeRaw = function ( rawPages ) {
+  rawPages.frames.forEach(frame => {
+    this.decoderBuffer.set(frame);
+    this.decoderBufferIndex = frame.length;
+    this.decodeFromBuffer();
+  }, this);
+}
 
 OggOpusDecoder.prototype.decode = function( typedArray ) {
+  if (this.config.consumeRawFrames) {
+    this.decodeRaw( typedArray );
+    return;
+  }
+
   var dataView = new DataView( typedArray.buffer );
   this.getPageBoundaries( dataView ).map( function( pageStart ) {
     var headerType = dataView.getUint8( pageStart + 5, true );
@@ -84,13 +112,7 @@ OggOpusDecoder.prototype.decode = function( typedArray ) {
         this.decoderBufferIndex += packetLength;
 
         if ( packetLength < 255 ) {
-          var outputSampleLength = this._opus_decode_float( this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutputPointer, this.decoderOutputMaxLength, 0);
-          var resampledLength = Math.ceil( outputSampleLength * this.config.outputBufferSampleRate / this.config.decoderSampleRate );
-          this.HEAP32[ this.decoderOutputLengthPointer >> 2 ] = outputSampleLength;
-          this.HEAP32[ this.resampleOutputLengthPointer >> 2 ] = resampledLength;
-          this._speex_resampler_process_interleaved_float( this.resampler, this.decoderOutputPointer, this.decoderOutputLengthPointer, this.resampleOutputBufferPointer, this.resampleOutputLengthPointer );
-          this.sendToOutputBuffers( this.HEAPF32.subarray( this.resampleOutputBufferPointer >> 2, (this.resampleOutputBufferPointer >> 2) + resampledLength * this.numberOfChannels ) );
-          this.decoderBufferIndex = 0;
+          this.decodeFromBuffer();
         }
       }
 

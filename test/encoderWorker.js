@@ -63,6 +63,7 @@ describe('encoderWorker', function() {
     expect(encoder.config).to.have.property('encoderFrameSize', 20);
     expect(encoder.config).to.have.property('resampleQuality', 3);
     expect(encoder.config).to.have.property('originalSampleRate', 44100);
+    expect(encoder.config).to.have.property('emitRawFrames', false);
   });
 
   it('should initialize encoder', function () {
@@ -82,6 +83,13 @@ describe('encoderWorker', function() {
       encoderComplexity: 10
     });
     expect(_opus_encoder_ctl_spy).to.have.been.calledWith(encoder.encoder, 4010, sinon.match.any)
+  });
+
+  it('should generate an ogg page', function () {
+    const encoder = getEncoder();
+    const message = encoder.generatePage();
+    var dataView = new DataView(message.page.buffer);
+    expect(dataView.getUint32(0, true)).to.equal(1399285583);
   });
 
   it('should default input sample rate field to originalSampleRate', function () {
@@ -188,7 +196,9 @@ describe('encoderWorker', function() {
     expect(dataView.getUint32(14, true)).to.equal(4294967295);
   });
 
-  const testingFrameSize = 50;
+  // must be set to one of the allowed opus frame sizes for 48khz
+  // see https://www.opus-codec.org/docs/html_api/group__opusencoder.html#gace941e4ef26ed844879fde342ffbe546
+  const testingFrameSize = 20;
 
   function bufferForFrames(amount) {
     return [new Float32Array(Math.ceil(amount * testingFrameSize * 44.1))];
@@ -230,6 +240,20 @@ describe('encoderWorker', function() {
 
     const message2 = encoder.encode(bufferForFrames(4));
     expect(message2.length).to.equal(2);
+  });
+
+  it('should emit raw frames', function () {
+    const encoder = getEncoder( { 
+      encoderFrameSize: testingFrameSize,      
+      emitRawFrames: true,
+      maxFramesPerPage: 4
+    } );
+    const message = encoder.encode(bufferForFrames(8));
+    expect(message.length).to.equal(2);
+
+    // since we are generating raw empty frames here, their length is "3" and they cannot be ogg pages
+    expect(message[0].page.frames.length).to.equal(4);
+    expect(message[1].page.frames.length).to.equal(4);
   });
 
   it('should cleanup when destroyed', function () {

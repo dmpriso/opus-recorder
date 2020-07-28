@@ -189,6 +189,7 @@ describe('Recorder', function(){
     expect(rec.config).to.have.property('encoderFrameSize', 20);
     expect(rec.config).to.have.property('resampleQuality', 3);
     expect(rec.config).to.have.property('wavBitDepth', 16);
+    expect(rec.config).to.have.property('emitRawFrames', false);
   });
 
   it('should support Recording with Safari Webkit', function () {
@@ -213,6 +214,7 @@ describe('Recorder', function(){
     expect(rec.config).to.have.property('encoderFrameSize', 20);
     expect(rec.config).to.have.property('resampleQuality', 3);
     expect(rec.config).to.have.property('wavBitDepth', 16);
+    expect(rec.config).to.have.property('emitRawFrames', false);
   });
 
   it('should create an instance with config', function () {
@@ -230,7 +232,8 @@ describe('Recorder', function(){
       encoderApplication: 2048,
       encoderFrameSize: 40,
       resampleQuality: 10,
-      wavBitDepth: 32
+      wavBitDepth: 32,
+      emitRawFrames: true
     });
 
     expect(rec.state).to.equal('inactive');
@@ -247,6 +250,7 @@ describe('Recorder', function(){
     expect(rec.config).to.have.property('encoderFrameSize', 40);
     expect(rec.config).to.have.property('resampleQuality', 10);
     expect(rec.config).to.have.property('wavBitDepth', 32);
+    expect(rec.config).to.have.property('emitRawFrames', true);
   });
 
   it('should start recording', function(){
