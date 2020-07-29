@@ -84,7 +84,7 @@ OggOpusEncoder.prototype.encode = function( buffers ) {
         }
       }
       else {
-        exportPages.concat(this.segmentPacket( packetLength ));
+        exportPages = exportPages.concat(this.segmentPacket( packetLength ));
         this.resampleBufferIndex = 0;
 
         this.framesInPage++;
@@ -148,7 +148,7 @@ OggOpusEncoder.prototype.encodeFinalFrame = function() {
       for ( var j = 0; j < this.config.numberOfChannels; j++ ) {
         finalFrameBuffers.push( new Float32Array( this.bufferLength ));
       }
-      exportPages.concat(this.encode( finalFrameBuffers ));
+      exportPages = exportPages.concat(this.encode( finalFrameBuffers ));
     }
   }
 
@@ -167,7 +167,7 @@ OggOpusEncoder.prototype.getChecksum = function( data ){
 
 OggOpusEncoder.prototype.generateCommentPage = function(){
   if (this.config.emitRawFrames)
-    return [];
+    return undefined;
 
   var segmentDataView = new DataView( this.segmentData.buffer );
   segmentDataView.setUint32( 0, 1937076303, true ) // Magic Signature 'Opus'
@@ -185,7 +185,7 @@ OggOpusEncoder.prototype.generateCommentPage = function(){
 
 OggOpusEncoder.prototype.generateIdPage = function(){
   if (this.config.emitRawFrames)
-    return [];
+    return undefined;
 
   var segmentDataView = new DataView( this.segmentData.buffer );
   segmentDataView.setUint32( 0, 1937076303, true ) // Magic Signature 'Opus'

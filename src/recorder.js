@@ -309,7 +309,7 @@ Recorder.prototype.finish = function() {
   if( !this.config.streamPages ) {
     if ( this.config.emitRawFrames ) {
       var outputData = this.recordedPages.reduce( function ( accumulated, current ) {
-        accumulated.frames.concat(current.frames)
+        accumulated.frames = accumulated.frames.concat(current.frames)
         return accumulated;
       }, {
         frames: []

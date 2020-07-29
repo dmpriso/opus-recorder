@@ -77,7 +77,7 @@ OggOpusDecoder.prototype.decodeFromBuffer = function() {
 };
 
 OggOpusDecoder.prototype.decodeRaw = function ( rawPages ) {
-  rawPages.frames.forEach( function (frame) {
+  rawPages.forEach( function (frame) {
     this.decoderBuffer.set(frame);
     this.decoderBufferIndex = frame.length;
     this.decodeFromBuffer();
