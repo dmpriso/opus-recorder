@@ -307,11 +307,21 @@ Recorder.prototype.streamPage = function( page ) {
 
 Recorder.prototype.finish = function() {
   if( !this.config.streamPages ) {
-    var outputData = new Uint8Array( this.totalLength );
-    this.recordedPages.reduce( function( offset, page ){
-      outputData.set( page, offset );
-      return offset + page.length;
-    }, 0);
+    if ( this.config.emitRawFrames ) {
+      var outputData = this.recordedPages.reduce( function ( accumulated, current ) {
+        accumulated.frames.concat(current.frames)
+        return accumulated;
+      }, {
+        frames: []
+      });
+    }
+    else {
+      var outputData = new Uint8Array( this.totalLength );
+      this.recordedPages.reduce( function( offset, page ){
+        outputData.set( page, offset );
+        return offset + page.length;
+      }, 0);
+  }
 
     this.ondataavailable( outputData );
   }

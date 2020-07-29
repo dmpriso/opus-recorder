@@ -2714,7 +2714,8 @@ OggOpusEncoder.prototype.generateRawPage = function () {
       buffer: this.rawFrameBuffer, // "buffer" will be transferred when posting the message, as with ogg pages
       frames: this.rawFrames
     }, 
-    samplePosition: this.granulePosition 
+    samplePosition: this.granulePosition,
+    length: this.rawFrameBufferUsage // we set this so recorder.js can calculate totalLength in storePage()
   };
 
   this.resetRawFrameBuffer();
